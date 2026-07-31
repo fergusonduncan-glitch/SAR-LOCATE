@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SAR Locate - Search & Rescue Command</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,18 +15,22 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        html, body { height: 100%; margin: 0; padding: 0; }
-        #map { height: 100%; width: 100%; min-height: 100vh; z-index: 1; }
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #map { height: 100%; width: 100%; z-index: 1; }
         .sidebar-scroll::-webkit-scrollbar { width: 6px; }
         .sidebar-scroll::-webkit-scrollbar-track { background: #1f2937; }
         .sidebar-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100 font-sans antialiased overflow-hidden">
+<body class="bg-gray-900 text-gray-100 font-sans antialiased">
 
-    <div class="flex h-screen w-screen relative overflow-hidden">
+    <div class="flex h-full w-full relative overflow-hidden">
+        
+        <!-- Mobile Backdrop -->
+        <div id="sidebarBackdrop" onclick="closeSidebar()" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden backdrop-blur-sm transition-opacity"></div>
+
         <!-- Sidebar Panel -->
-        <aside class="w-full md:w-96 bg-gray-900 border-r border-gray-800 flex flex-col z-20 absolute md:relative h-full transition-transform duration-300 transform" id="sidebar">
+        <aside id="sidebar" class="w-80 sm:w-96 bg-gray-900 border-r border-gray-800 flex flex-col z-30 fixed md:relative inset-y-0 left-0 h-full transition-transform duration-300 transform -translate-x-full md:translate-x-0 shadow-2xl md:shadow-none">
             <!-- Header -->
             <div class="p-4 bg-gray-950 border-b border-gray-800 flex items-center justify-between">
                 <div class="flex items-center space-x-3">
@@ -38,7 +42,7 @@
                         <p class="text-xs text-gray-400">Search & Rescue Sector Planner</p>
                     </div>
                 </div>
-                <button id="toggleSidebar" class="md:hidden text-gray-400 hover:text-white">
+                <button onclick="closeSidebar()" class="md:hidden text-gray-400 hover:text-white p-2">
                     <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
             </div>
@@ -159,11 +163,16 @@
                         <h2 class="text-xs font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
                             <i class="fa-solid fa-clipboard-check"></i> Searched Roads & Paths Log
                         </h2>
-                        <span id="logCount" class="text-xs font-bold bg-gray-700 px-2 py-0.5 rounded text-gray-300">0</span>
+                        <div class="flex items-center space-x-2">
+                            <button id="exportLogBtn" onclick="exportLogToClipboard()" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 active:scale-95">
+                                <i class="fa-solid fa-copy text-amber-400"></i> Export
+                            </button>
+                            <span id="logCount" class="text-xs font-bold bg-gray-700 px-2 py-0.5 rounded text-gray-300">0</span>
+                        </div>
                     </div>
 
                     <div id="logContainer" class="max-h-48 overflow-y-auto space-y-1.5 text-xs text-gray-300 sidebar-scroll pr-1">
-                        <div class="text-gray-500 italic text-center py-4">No features marked as searched yet. Click highlighted features on map or list to search them.</div>
+                        <div class="text-gray-500 italic text-center py-4">No features marked as searched yet. Click highlighted features on map to search them.</div>
                     </div>
                 </section>
 
@@ -173,18 +182,19 @@
         <!-- Map Container -->
         <main class="flex-1 relative h-full w-full">
             <!-- Mobile Toggle Button -->
-            <button id="openSidebar" class="md:hidden absolute top-4 left-4 z-10 bg-gray-900 border border-gray-700 text-white p-3 rounded-lg shadow-xl">
-                <i class="fa-solid fa-bars"></i>
+            <button id="openSidebarBtn" onclick="openSidebar()" class="md:hidden absolute top-3 left-3 z-10 bg-gray-900/90 border border-gray-700 text-white px-3.5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-sm font-medium backdrop-blur-md active:scale-95 transition">
+                <i class="fa-solid fa-bars text-red-500"></i>
+                <span>Menu</span>
             </button>
 
             <!-- Loading Spinner Overlay -->
-            <div id="mapLoader" class="hidden absolute inset-0 bg-gray-950/70 z-30 flex flex-col items-center justify-center backdrop-blur-sm text-white">
+            <div id="mapLoader" class="hidden absolute inset-0 bg-gray-950/70 z-30 flex flex-col items-center justify-center backdrop-blur-sm text-white px-4 text-center">
                 <div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3"></div>
                 <div class="text-sm font-semibold tracking-wide" id="loaderText">Fetching OpenStreetMap Features...</div>
             </div>
 
             <!-- Map View -->
-            <div id="map"></div>
+            <div id="map" class="h-full w-full"></div>
         </main>
     </div>
 
@@ -200,7 +210,7 @@
 
         // Initialize Map
         function initMap() {
-            if (map) return; // Prevent double initialization
+            if (map) return;
 
             map = L.map('map', { 
                 zoomControl: false,
@@ -247,25 +257,27 @@
 
             featuresLayerGroup.addTo(map);
 
-            // Force Leaflet to re-calculate dimensions for reliable tile rendering
+            // Recalculate dimensions for reliable tile rendering
             setTimeout(() => {
-                map.invalidateSize();
-            }, 200);
+                if (map) map.invalidateSize();
+            }, 300);
+        }
+
+        // Mobile Drawer Controls
+        function openSidebar() {
+            document.getElementById('sidebar').classList.remove('-translate-x-full');
+            document.getElementById('sidebarBackdrop').classList.remove('hidden');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.add('-translate-x-full');
+            document.getElementById('sidebarBackdrop').classList.add('hidden');
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
         }
 
         // Window resize event handler
         window.addEventListener('resize', () => {
             if (map) map.invalidateSize();
-        });
-
-        // Toggle Sidebar Mobile
-        document.getElementById('openSidebar')?.addEventListener('click', () => {
-            document.getElementById('sidebar').classList.remove('-translate-x-full');
-            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
-        });
-        document.getElementById('toggleSidebar')?.addEventListener('click', () => {
-            document.getElementById('sidebar').classList.add('-translate-x-full');
-            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
         });
 
         // Set Location Search Mode UI
@@ -294,6 +306,11 @@
 
             // Clear previous scanned layers on position change
             featuresLayerGroup.clearLayers();
+            
+            // Auto close mobile drawer on selection
+            if (window.innerWidth < 768) {
+                closeSidebar();
+            }
         }
 
         // Search UK Postcode via postcodes.io API
@@ -373,20 +390,19 @@
             const totalHours = hrs + (mins / 60);
             const extraDistanceMeters = totalHours * speed * 1000;
 
-            // Total search radius = Base 300m + Distance based on walking speed
             currentRadius = Math.round(300 + extraDistanceMeters);
-
             radiusCircle.setRadius(currentRadius);
             
-            // Format display text
             const radiusFormatted = currentRadius >= 1000 
                 ? `${(currentRadius / 1000).toFixed(2)} km` 
                 : `${currentRadius} metres`;
             
             document.getElementById('calc-radius-display').innerText = radiusFormatted;
-
-            // Adjust map view bounding box to fit enlarged circle
             map.fitBounds(radiusCircle.getBounds(), { padding: [20, 20] });
+
+            if (window.innerWidth < 768) {
+                closeSidebar();
+            }
         }
 
         // Query Overpass API for Roads, Footpaths, and Open Spaces
@@ -398,7 +414,6 @@
             const lat = currentPos.lat;
             const lng = currentPos.lng;
 
-            // Overpass QL Query for highways, footways, and open spaces inside circle
             const overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];(way["highway"](around:${radius},${lat},${lng});way["leisure"~"park|garden|pitch"](around:${radius},${lat},${lng});way["landuse"~"forest|meadow|grass"](around:${radius},${lat},${lng}););out body;>;out skel qt;`;
 
             try {
@@ -412,7 +427,6 @@
                     return;
                 }
 
-                // Render GeoJSON Features
                 L.geoJSON(geojson, {
                     style: function (feature) {
                         const isArea = feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon';
@@ -430,15 +444,17 @@
                         feature.customId = id;
                         feature.displayName = name;
 
-                        // Tooltip
                         layer.bindTooltip(`<b>${name}</b><br><span class="text-xs">Click to mark as searched</span>`, { sticky: true });
 
-                        // Click to toggle Searched state
                         layer.on('click', function () {
                             toggleFeatureSearched(layer, feature);
                         });
                     }
                 }).addTo(featuresLayerGroup);
+
+                if (window.innerWidth < 768) {
+                    closeSidebar();
+                }
 
             } catch (err) {
                 console.error(err);
@@ -454,14 +470,12 @@
             const isSearched = searchedFeatures.has(id);
 
             if (!isSearched) {
-                // Mark as Searched
                 searchedFeatures.set(id, {
                     name: feature.displayName,
                     type: feature.properties.highway ? 'Road/Path' : 'Open Space',
                     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 });
 
-                // Apply Searched Visual (Grey)
                 layer.setStyle({
                     color: '#6b7280',
                     fillColor: '#4b5563',
@@ -469,9 +483,7 @@
                     dashArray: '4, 4'
                 });
             } else {
-                // Unmark / Re-open
                 searchedFeatures.delete(id);
-                
                 const isArea = feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon';
                 layer.setStyle({
                     color: isArea ? '#10b981' : '#f59e0b',
@@ -515,6 +527,55 @@
             container.innerHTML = html;
         }
 
+        // Export Log to Clipboard as Plain Text
+        function exportLogToClipboard() {
+            if (searchedFeatures.size === 0) {
+                alert("No searched areas in the log to export.");
+                return;
+            }
+
+            let exportText = `SAR LOCATE - SEARCHED AREA LOG\n`;
+            exportText += `Generated: ${new Date().toLocaleString('en-GB')}\n`;
+            exportText += `IPP Coordinates: ${currentPos.lat.toFixed(6)}, ${currentPos.lng.toFixed(6)}\n`;
+            exportText += `Search Radius: ${currentRadius >= 1000 ? (currentRadius / 1000).toFixed(2) + ' km' : currentRadius + ' metres'}\n`;
+            exportText += `Total Cleared Sectors: ${searchedFeatures.size}\n`;
+            exportText += `========================================\n\n`;
+
+            let count = 1;
+            searchedFeatures.forEach((item) => {
+                exportText += `${count}. ${item.name} [${item.type}] - Cleared at ${item.time}\n`;
+                count++;
+            });
+
+            // Fallback execCommand for iframe compatibility
+            const textarea = document.createElement('textarea');
+            textarea.value = exportText;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    const btn = document.getElementById('exportLogBtn');
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Copied!`;
+                    btn.classList.add('border-emerald-500', 'text-emerald-300');
+                    setTimeout(() => {
+                        btn.innerHTML = originalHTML;
+                        btn.classList.remove('border-emerald-500', 'text-emerald-300');
+                    }, 2000);
+                } else {
+                    alert("Unable to copy log to clipboard.");
+                }
+            } catch (err) {
+                alert("Error copying log to clipboard.");
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
         // Remove item from log via sidebar
         function removeLogItem(id) {
             featuresLayerGroup.eachLayer(group => {
@@ -537,7 +598,7 @@
             }
         }
 
-        // Initialize on DOM load or immediate execution
+        // Initialize on DOM load
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initMap);
         } else {
